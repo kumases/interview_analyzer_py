@@ -17,7 +17,6 @@ develop-eggs/
 
 # PyInstaller
 #  Usually these files are in another directory, where the executable is created
-*.spec
 
 # Installer logs
 pip-log.txt
