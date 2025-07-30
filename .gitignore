@@ -117,3 +117,8 @@ logs/
 *.log
 *.db
 analyzer_data.db
+
+# Custom ignores
+config.ini
+日報分析結果/
+面談要約結果/
