@@ -13,13 +13,13 @@ tkinterdnd2_path = os.path.dirname(tkinterdnd2.__file__)
 
 
 a = Analysis(
-    ['app_gui.py'], # エントリポイントをapp_gui.pyに変更
+    ['src/app_gui.py'], # エントリポイントをsrc/app_gui.pyに変更
     pathex=[],
     binaries=[],
     datas=[
         (os.path.join(customtkinter_path, 'assets'), 'customtkinter/assets'), # customtkinterのリソースを追加
         (os.path.join(tkinterdnd2_path, 'tkdnd'), 'tkdnd'), # tkinterdnd2のtkdndディレクトリを追加
-        ('backend_logic.py', '.') # backend_logic.pyを明示的に追加
+        ('src/backend_logic.py', 'src') # backend_logic.pyを明示的に追加
     ],
     hiddenimports=['backend_logic'],
     hookspath=[],
