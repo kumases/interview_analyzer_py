@@ -50,9 +50,9 @@ def load_config():
     global AI_BACKEND, OLLAMA_URL, OLLAMA_MODEL, DAILY_REPORT_PERIOD
     config = configparser.ConfigParser()
     try:
-        print("DEBUG: Attempting to read config.ini.")
+        logging.debug("Attempting to read config.ini.")
         config.read(FileAndDir.CONFIG_FILE, encoding='utf-8')
-        print(f"DEBUG: config.ini sections: {config.sections()}")
+        logging.debug(f"config.ini sections: {config.sections()}")
         AI_BACKEND = config[ConfigKeys.AI_BACKEND_SECTION][ConfigKeys.AI_BACKEND].lower()
         if AI_BACKEND not in [ConfigKeys.GEMINI, ConfigKeys.OLLAMA]:
             logging.error(f"config.iniの[{ConfigKeys.AI_BACKEND_SECTION}]セクションの'{ConfigKeys.AI_BACKEND}'は'{ConfigKeys.GEMINI}'または'{ConfigKeys.OLLAMA}'である必要があります。")
@@ -74,15 +74,15 @@ def load_config():
                 return False
             logging.info(f"Ollamaバックエンドが設定されました。URL: {OLLAMA_URL}, モデル: {OLLAMA_MODEL}")
         DAILY_REPORT_PERIOD = config[ConfigKeys.DAILY_REPORT_SECTION][ConfigKeys.PERIOD].lower()
-        print(f"DEBUG: DAILY_REPORT_PERIOD set to {DAILY_REPORT_PERIOD}.")
+        logging.debug(f"DAILY_REPORT_PERIOD set to {DAILY_REPORT_PERIOD}.")
         if DAILY_REPORT_PERIOD not in [ConfigKeys.WEEKLY, ConfigKeys.MONTHLY]:
             logging.error(f"config.iniの[{ConfigKeys.DAILY_REPORT_SECTION}]セクションの'{ConfigKeys.PERIOD}'は'{ConfigKeys.WEEKLY}'または'{ConfigKeys.MONTHLY}'である必要があります。")
             return False
         logging.info(f"日報集計期間が'{DAILY_REPORT_PERIOD}'に設定されました。")
-        print("DEBUG: load_config successful.")
+        logging.debug("load_config successful.")
         return True
     except Exception as e:
-        print(f"DEBUG: Error loading config.ini: {e}")
+        logging.debug(f"Error loading config.ini: {e}")
         logging.error(f"config.iniの読み込み中にエラーが発生しました: {e}")
         return False
 

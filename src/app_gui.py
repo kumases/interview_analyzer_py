@@ -15,7 +15,7 @@ from constants import AnalysisMode, UIDefaults # 定数をインポート
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
-        print("DEBUG: App.__init__ started.")
+        logging.debug("App.__init__ started.")
         self.TkdndVersion = tkdnd._require(self) # tkinterdnd2を有効化
 
         self.title("Interview Analyzer")
@@ -135,11 +135,11 @@ class App(customtkinter.CTk):
         self.on_mode_change() 
 
         # DB初期化
-        print("DEBUG: About to import database_handler.")
+        logging.debug("About to import database_handler.")
         import database_handler
-        print("DEBUG: Calling database_handler.initialize_database()...")
+        logging.debug("Calling database_handler.initialize_database()...")
         database_handler.initialize_database()
-        print("DEBUG: database_handler.initialize_database() finished.")
+        logging.debug("database_handler.initialize_database() finished.")
 
     # --- UIの表示/非表示を切り替える関数 ---
     def on_mode_change(self):
@@ -175,7 +175,7 @@ class App(customtkinter.CTk):
             self.path_entry.insert(0, folderpath)
 
     def start_analysis(self):
-        print("DEBUG: start_analysis called.")
+        logging.debug("start_analysis called.")
         mode = self.mode_variable.get()
         path = os.path.normpath(self.path_entry.get())
 
@@ -201,7 +201,7 @@ class App(customtkinter.CTk):
         thread.start()
 
     def start_qa_session_flow(self):
-        print("DEBUG: start_qa_session_flow called.")
+        logging.debug("start_qa_session_flow called.")
         # UIの状態をUiStateManager経由で設定 (処理中状態)
         self.ui_manager.set_processing_state()
         self.start_spinner()
@@ -214,7 +214,7 @@ class App(customtkinter.CTk):
         thread.start()
 
     def _prepare_qa_session(self):
-        print("DEBUG: _prepare_qa_session called.")
+        logging.debug("_prepare_qa_session called.")
         self.log("AI対話モードの準備を開始します...")
         
         # backend_logicからデータを読み込み、件数とチャットセッションを取得
@@ -248,9 +248,9 @@ class App(customtkinter.CTk):
         thread.start()
 
     def _update_delete_combobox_backend(self):
-        self.log("DEBUG: _update_delete_combobox_backend called.")
+        logging.debug("_update_delete_combobox_backend called.")
         deletable_items, _, _ = backend_logic.run_backend_process(mode=AnalysisMode.GET_DELETE_LIST)
-        self.log(f"DEBUG: deletable_items from backend: {deletable_items}")
+        logging.debug(f"deletable_items from backend: {deletable_items}")
         if deletable_items and isinstance(deletable_items, list):
             self.after(0, lambda: self.delete_combobox.configure(values=deletable_items))
             self.after(0, lambda: self.delete_combobox.set(UIDefaults.DELETE_PROMPT))
