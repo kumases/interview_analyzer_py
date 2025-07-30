@@ -8,20 +8,10 @@ import requests # Ollama用
 import json # AI応答パース用
 import time # リトライ処理用
 import database_handler # 追加
-
-# デフォルトのコメント項目リスト
-DEFAULT_COMMENT_ITEMS = [
-    "現在の担当業務",
-    "最近学習した技術",
-    "技術的な課題と解決策",
-    "チームでの役割",
-    "今後のキャリア目標",
-    "上長コメント",
-    "面談内容",
-    "面談コメント",
-    "業務での課題や悩み",
-    "その他、共有事項"
-]
+from constants import ( # 定数をインポート
+    AnalysisMode, ColumnName, UIDefaults, ConfigKeys, FileAndDir, DataStructure,
+    DEFAULT_COMMENT_ITEMS
+)
 
 # --- 1. 基本設定 ---
 # ロギング設定
@@ -61,32 +51,32 @@ def load_config():
     config = configparser.ConfigParser()
     try:
         print("DEBUG: Attempting to read config.ini.")
-        config.read('config.ini', encoding='utf-8')
+        config.read(FileAndDir.CONFIG_FILE, encoding='utf-8')
         print(f"DEBUG: config.ini sections: {config.sections()}")
-        AI_BACKEND = config['ai_backend']['ai_backend'].lower()
-        if AI_BACKEND not in ['gemini', 'ollama']:
-            logging.error("config.iniの[ai_backend]セクションの'ai_backend'は'gemini'または'ollama'である必要があります。")
+        AI_BACKEND = config[ConfigKeys.AI_BACKEND_SECTION][ConfigKeys.AI_BACKEND].lower()
+        if AI_BACKEND not in [ConfigKeys.GEMINI, ConfigKeys.OLLAMA]:
+            logging.error(f"config.iniの[{ConfigKeys.AI_BACKEND_SECTION}]セクションの'{ConfigKeys.AI_BACKEND}'は'{ConfigKeys.GEMINI}'または'{ConfigKeys.OLLAMA}'である必要があります。")
             return False
-        if AI_BACKEND == 'gemini':
-            api_key = config['gemini']['api_key']
+        if AI_BACKEND == ConfigKeys.GEMINI:
+            api_key = config[ConfigKeys.GEMINI_SECTION][ConfigKeys.API_KEY]
             if api_key == 'YOUR_API_KEY' or not api_key:
                 logging.error("Gemini APIが選択されていますが、APIキーがconfig.iniに設定されていません。")
                 return False
             genai.configure(api_key=api_key)
             global GEMINI_MODEL # グローバル変数を宣言
-            GEMINI_MODEL = config['gemini'].get('model_version', 'gemini-2.0-flash') # model_versionを読み込み、デフォルト値を設定
+            GEMINI_MODEL = config[ConfigKeys.GEMINI_SECTION].get(ConfigKeys.MODEL_VERSION, 'gemini-2.0-flash') # model_versionを読み込み、デフォルト値を設定
             logging.info(f"Gemini APIが正常に設定されました。使用モデル: {GEMINI_MODEL}")
-        elif AI_BACKEND == 'ollama':
-            OLLAMA_URL = config['ollama']['ollama_url']
-            OLLAMA_MODEL = config['ollama']['ollama_model']
+        elif AI_BACKEND == ConfigKeys.OLLAMA:
+            OLLAMA_URL = config[ConfigKeys.OLLAMA_SECTION][ConfigKeys.OLLAMA_URL]
+            OLLAMA_MODEL = config[ConfigKeys.OLLAMA_SECTION][ConfigKeys.OLLAMA_MODEL]
             if not OLLAMA_URL or not OLLAMA_MODEL:
                 logging.error("Ollamaが選択されていますが、URLまたはモデル名がconfig.iniに設定されていません。")
                 return False
             logging.info(f"Ollamaバックエンドが設定されました。URL: {OLLAMA_URL}, モデル: {OLLAMA_MODEL}")
-        DAILY_REPORT_PERIOD = config['daily_report']['period'].lower()
+        DAILY_REPORT_PERIOD = config[ConfigKeys.DAILY_REPORT_SECTION][ConfigKeys.PERIOD].lower()
         print(f"DEBUG: DAILY_REPORT_PERIOD set to {DAILY_REPORT_PERIOD}.")
-        if DAILY_REPORT_PERIOD not in ['weekly', 'monthly']:
-            logging.error("config.iniの[daily_report]セクションの'period'は'weekly'または'monthly'である必要があります。")
+        if DAILY_REPORT_PERIOD not in [ConfigKeys.WEEKLY, ConfigKeys.MONTHLY]:
+            logging.error(f"config.iniの[{ConfigKeys.DAILY_REPORT_SECTION}]セクションの'{ConfigKeys.PERIOD}'は'{ConfigKeys.WEEKLY}'または'{ConfigKeys.MONTHLY}'である必要があります。")
             return False
         logging.info(f"日報集計期間が'{DAILY_REPORT_PERIOD}'に設定されました。")
         print("DEBUG: load_config successful.")
@@ -121,7 +111,7 @@ def call_ai_model(prompt, model_type="generative"):
     """AIバックエンドに応じてモデルを呼び出す共通関数"""
     for attempt in range(MAX_RETRIES):
         try:
-            if AI_BACKEND == 'gemini':
+            if AI_BACKEND == ConfigKeys.GEMINI:
                 logging.info(f"        DEBUG: Attempting to initialize Gemini model ({GEMINI_MODEL}).")
                 try:
                     model = genai.GenerativeModel(GEMINI_MODEL)
@@ -148,7 +138,7 @@ def call_ai_model(prompt, model_type="generative"):
                     logging.error("        DEBUG: call_ai_model returning None due to empty/invalid response.")
                     return None # 不正なレスポンスの場合はNoneを返す
 
-            elif AI_BACKEND == 'ollama':
+            elif AI_BACKEND == ConfigKeys.OLLAMA:
                 headers = {'Content-Type': 'application/json'}
                 data = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
                 response = requests.post(f"{OLLAMA_URL}/api/generate", headers=headers, json=data, timeout=60) # タイムアウトを60秒に設定
@@ -434,7 +424,7 @@ def load_data(file_path, sheet_name=None):
 def process_interviews_logic(input_path):
     """面談分析のメインロジック"""
     logging.info("モード: 面談分析を開始します。")
-    output_directory = "面談要約結果"
+    output_directory = FileAndDir.INTERVIEW_RESULT_DIR
     # Ensure the output directory exists and get its absolute path
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
@@ -445,195 +435,206 @@ def process_interviews_logic(input_path):
         logging.warning(msg)
         return msg, []
     
-    final_name_col = '従業員名'
+    final_name_col = ColumnName.EMPLOYEE_NAME
     processed_dfs = []
-    if os.path.isdir(input_path):
+
+    files_to_process = []
+    if os.path.isfile(input_path):
+        files_to_process.append(input_path)
+        logging.info(f"単一ファイル '{input_path}' を処理します。")
+    elif os.path.isdir(input_path):
         logging.info(f"ディレクトリ '{input_path}' 内のファイルを処理します。")
-        all_files = [os.path.join(input_path, f) for f in os.listdir(input_path) if os.path.isfile(os.path.join(input_path, f)) and (f.lower().endswith('.csv') or f.lower().endswith('.xlsx'))]
-        if not all_files:
+        all_files_in_dir = [os.path.join(input_path, f) for f in os.listdir(input_path) if os.path.isfile(os.path.join(input_path, f)) and (f.lower().endswith('.csv') or f.lower().endswith('.xlsx'))]
+        files_to_process.extend(all_files_in_dir)
+        if not files_to_process:
             msg = "指定されたディレクトリから処理可能なファイルが見つかりませんでした。"
             logging.error(msg)
             return msg, []
-        logging.info(f"合計 {len(all_files)} 個のファイルが見つかりました。")
-        for i, file_path in enumerate(all_files):
-            logging.info(f"[{i+1}/{len(all_files)}] ファイル '{file_path}' を処理中...")
-            df_single = load_data(file_path)
-            if df_single is None or df_single.empty:
-                logging.warning(f"ファイル '{file_path}' の読み込みに失敗したか、ファイルが空です。スキップします。")
-                continue
-            
-            logging.info(f"  ファイル '{file_path}' のデータ構造をAIで分析中...")
-            logging.info("  DEBUG: converting df_single.head() to csv string...")
-            df_head_str = df_single.head().to_csv(index=False)
-            logging.info("  DEBUG: df_single.head() converted to csv string successfully.")
-            logging.info("  DEBUG: Calling analyze_dataframe_structure_with_ai...")
-            analysis_result = analyze_dataframe_structure_with_ai(df_head_str)
-            logging.info("  DEBUG: analyze_dataframe_structure_with_ai returned.")
-            if analysis_result is None:
-                logging.error(f"  ファイル '{file_path}' のAIによるデータ構造の分析に失敗しました。スキップします。")
-                continue
-            
-            # 従業員名、得意分野、面談日、そしてAIに渡すテキストを初期化
-            employee_name = '不明な従業員'
-            employee_id = '' # 新しく従業員IDを追加
-            skills = ''
-            interview_date_str = '' # 面談日を文字列として保持
-            interview_data_text = ''
+        logging.info(f"合計 {len(files_to_process)} 個のファイルが見つかりました。")
+    else:
+        msg = f"指定されたパスが見つかりません: {input_path}"
+        logging.warning(msg)
+        return msg, []
 
-            # AIの判断結果に基づき、プログラムが全データをテキスト化
-            if analysis_result.get('structure') == '横持ち':
-                name_col = analysis_result.get('employee_col')
-                employee_id_col = analysis_result.get('employee_id_col') # 追加
-                skills_col = analysis_result.get('skills_col')
-                interview_date_col = analysis_result.get('interview_date_col')
-
-                if not df_single.empty:
-                    # 従業員名、スキル、面談日を取得
-                    if name_col and name_col in df_single.columns:
-                        employee_name = str(df_single.iloc[0][name_col])
-                        logging.info(f"        DEBUG: Extracted employee_name (from file): {employee_name}")
-                    
-                    # 従業員IDを抽出
-                    if employee_id_col and employee_id_col in df_single.columns:
-                        employee_id = str(df_single.iloc[0][employee_id_col])
-                    if skills_col and skills_col in df_single.columns:
-                        skills = df_single.iloc[0][skills_col]
-                    if interview_date_col and interview_date_col in df_single.columns:
-                        # 日付形式をYYYYMMDDに変換
-                        try:
-                            interview_date_str = pd.to_datetime(df_single.iloc[0][interview_date_col]).strftime('%Y%m%d')
-                        except Exception as e:
-                            logging.warning(f"面談日の変換に失敗しました: {e}。処理実行日時を使用します。")
-                            interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
-                    else:
-                        interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
-                    # 面談コメントのみをテキスト化
-                    comment_col = analysis_result.get('comment_col')
-                    if comment_col and comment_col in df_single.columns:
-                        interview_data_text = "\n".join(df_single[comment_col].dropna().astype(str))
-                        logging.info(f"  横持ちデータからコメント列 '{comment_col}' を抽出しました。")
-                    else:
-                        logging.warning(f"  コメント列 '{comment_col}' が見つからなかったため、全データをテキスト化します。")
-                        # フォールバックとして全データをテキスト化
-                        for index, row in df_single.iterrows():
-                            interview_data_text += f"--- Record {index + 1} ---\n"
-                            for col, value in row.items():
-                                interview_data_text += f"{col}: {value}\n"
-
-            elif analysis_result.get('structure') == '縦持ち':
-                logging.info(f"  ファイル '{file_path}' は縦持ち構造と判断されました。")
-                item_col = analysis_result.get('item_col')
-                value_col = analysis_result.get('value_col')
-                employee_item = analysis_result.get('employee_item')
-                employee_id_item = analysis_result.get('employee_id_item') # 追加
-                skills_item = analysis_result.get('skills_item')
-                interview_date_item = analysis_result.get('interview_date_item')
-
-                if item_col and value_col in df_single.columns:
-                    data_dict = pd.Series(df_single[value_col].values, index=df_single[item_col]).to_dict()
-                    # 従業員名、スキル、面談日を取得
-                    if employee_item in data_dict:
-                        employee_name = str(data_dict[employee_item])
-                    
-                    # 従業員IDを抽出
-                    if employee_id_item in data_dict:
-                        employee_id = str(data_dict[employee_id_item])
-                    if skills_item in data_dict:
-                        skills = data_dict[skills_item]
-                        logging.info(f"        DEBUG: Extracted skills: {skills}") # New log
-                    if interview_date_item in data_dict:
-                        # 日付形式をYYYYMMDDに変換
-                        try:
-                            interview_date_str = pd.to_datetime(data_dict[interview_date_item]).strftime('%Y%m%d')
-                        except Exception as e:
-                            logging.warning(f"面談日の変換に失敗しました: {e}。処理実行日時を使用します。")
-                            interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
-                    else:
-                        interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
-                    # 面談コメントのみをテキスト化
-                    comment_items = analysis_result.get('comment_items', [])
-                    
-                    # AIがコメント項目を十分に特定できなかった場合、デフォルトのリストを使用
-                    if not comment_items or (len(comment_items) == 1 and comment_items[0] == "現在の担当業務"):
-                        logging.warning("  AIがコメント項目を十分に特定できなかったため、デフォルトのコメント項目リストを使用します。")
-                        comment_items = DEFAULT_COMMENT_ITEMS
-
-                    if comment_items:
-                        # comment_itemsがリストであることを確認
-                        if not isinstance(comment_items, list):
-                            logging.warning(f"  comment_itemsがリストではないため、処理をスキップします: {comment_items}")
-                            comment_items = [] # エラーを防ぐために空のリストに設定
-                        
-                        # 抽出したコメントを結合
-                        comments_to_join = []
-                        for item in comment_items:
-                            if item in data_dict:
-                                comments_to_join.append(f"{item}: {str(data_dict[item])}") # 項目名も追加
-                        interview_data_text = "\n".join(comments_to_join)
-                        logging.info(f"  縦持ちデータからコメント項目 {comment_items} を抽出しました。")
-                    else:
-                        logging.warning("  コメント項目が見つからなかったため、全データをテキスト化します。")
-                        # フォールバックとして全データをテキスト化
-                        for item, value in data_dict.items():
-                            interview_data_text += f"{item}: {value}\n"
-                else:
-                    logging.error(f"  縦持ち構造の必須列が見つかりません: '{item_col}', '{value_col}'。スキップします。")
-                    continue
-            else:
-                logging.error(f"AIが不明なデータ構造を返しました: {analysis_result.get('structure')}。ファイル '{file_path}' をスキップします。")
-                continue
-
-            if not interview_data_text.strip():
-                logging.warning(f"ファイル '{file_path}' からテキストデータを抽出できませんでした。スキップします。")
-                continue
-
-            logging.info(f"  ファイル '{file_path}' の面談データをAIで要約中...")
-            summary = get_summary_from_ai(interview_data_text)
-            logging.info(f"  DEBUG: Summary received from get_summary_from_ai (type: {type(summary)}): {summary[:100] if summary else 'None'}...")
-            
-            logging.info(f"  ファイル '{file_path}' のAIによるアドバイスを生成中...")
-            advice = get_advice_from_ai(summary)
-
-            # ファイル名を生成 (従業員名が不明な従業員でなければ従業員名を優先、そうでなければ従業員ID)
-            if employee_name != '不明な従業員':
-                output_filename_base = f"{employee_name}_{interview_date_str}"
-            elif employee_id: # employee_nameが不明な従業員で、employee_idがある場合
-                output_filename_base = f"{employee_id}_{interview_date_str}"
-            else: # どちらも不明な場合
-                output_filename_base = f"不明な従業員_{interview_date_str}"
-
-            safe_output_filename_base = "".join(c for c in output_filename_base if c.isalnum() or c in ('_', '-')).rstrip()
-            
-            result_df_single = pd.DataFrame([{
-                final_name_col: employee_name,
-                '従業員ID': employee_id, # 追加
-                '得意分野': skills,
-                '面談結果要約': summary,
-                'AIによるアドバイス': advice
-            }])
-            
-            # save_individual_reportsにファイル名を渡す
-            saved_path = save_individual_reports(result_df_single, final_name_col, output_directory, safe_output_filename_base)
-            if saved_path:
-                saved_file_paths.append(saved_path)
-                # DBにも保存
-                db_data = {
-                    'employee_name': employee_name,
-                    'employee_id': employee_id, # 追加
-                    'interview_date': interview_date_str,
-                    'summary_positive': summary, # ここは要約全体を渡す
-                    'summary_negative': '', # 面談分析ではネガティブは別途抽出しないので空
-                    'summary_action_items': '', # 面談分析ではアクションアイテムは別途抽出しないので空
-                    'ai_advice': advice
-                }
-                database_handler.save_interview_to_db(db_data)
-            processed_dfs.append(result_df_single)
-            
-            logging.info(f"  ファイル '{file_path}' の処理が完了しました。")
+    for i, file_path in enumerate(files_to_process):
+        logging.info(f"[{i+1}/{len(files_to_process)}] ファイル '{file_path}' を処理中...")
+        df_single = load_data(file_path)
+        if df_single is None or df_single.empty:
+            logging.warning(f"ファイル '{file_path}' の読み込みに失敗したか、ファイルが空です。スキップします。")
+            continue
         
-        msg = "面談分析の処理が完了しました。"
-        logging.info(msg)
-        return msg, saved_file_paths
+        logging.info(f"  ファイル '{file_path}' のデータ構造をAIで分析中...")
+        logging.info("  DEBUG: converting df_single.head() to csv string...")
+        df_head_str = df_single.head().to_csv(index=False)
+        logging.info("  DEBUG: df_single.head() converted to csv string successfully.")
+        logging.info("  DEBUG: Calling analyze_dataframe_structure_with_ai...")
+        analysis_result = analyze_dataframe_structure_with_ai(df_head_str)
+        logging.info("  DEBUG: analyze_dataframe_structure_with_ai returned.")
+        if analysis_result is None:
+            logging.error(f"  ファイル '{file_path}' のAIによるデータ構造の分析に失敗しました。スキップします。")
+            continue
+        
+        # 従業員名、得意分野、面談日、そしてAIに渡すテキストを初期化
+        employee_name = '不明な従業員'
+        employee_id = '' # 新しく従業員IDを追加
+        skills = ''
+        interview_date_str = '' # 面談日を文字列として保持
+        interview_data_text = ''
+
+        # AIの判断結果に基づき、プログラムが全データをテキスト化
+        if analysis_result.get('structure') == DataStructure.WIDE:
+            name_col = analysis_result.get('employee_col')
+            employee_id_col = analysis_result.get('employee_id_col') # 追加
+            skills_col = analysis_result.get('skills_col')
+            interview_date_col = analysis_result.get('interview_date_col')
+
+            if not df_single.empty:
+                # 従業員名、スキル、面談日を取得
+                if name_col and name_col in df_single.columns:
+                    employee_name = str(df_single.iloc[0][name_col])
+                    logging.info(f"        DEBUG: Extracted employee_name (from file): {employee_name}")
+                
+                # 従業員IDを抽出
+                if employee_id_col and employee_id_col in df_single.columns:
+                    employee_id = str(df_single.iloc[0][employee_id_col])
+                if skills_col and skills_col in df_single.columns:
+                    skills = df_single.iloc[0][skills_col]
+                if interview_date_col and interview_date_col in df_single.columns:
+                    # 日付形式をYYYYMMDDに変換
+                    try:
+                        interview_date_str = pd.to_datetime(df_single.iloc[0][interview_date_col]).strftime('%Y%m%d')
+                    except Exception as e:
+                        logging.warning(f"面談日の変換に失敗しました: {e}。処理実行日時を使用します。")
+                        interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
+                else:
+                    interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
+                # 面談コメントのみをテキスト化
+                comment_col = analysis_result.get('comment_col')
+                if comment_col and comment_col in df_single.columns:
+                    interview_data_text = "\n".join(df_single[comment_col].dropna().astype(str))
+                    logging.info(f"  横持ちデータからコメント列 '{comment_col}' を抽出しました。")
+                else:
+                    logging.warning(f"  コメント列 '{comment_col}' が見つからなかったため、全データをテキスト化します。")
+                    # フォールバックとして全データをテキスト化
+                    for index, row in df_single.iterrows():
+                        interview_data_text += f"--- Record {index + 1} ---\n"
+                        for col, value in row.items():
+                            interview_data_text += f"{col}: {value}\n"
+
+        elif analysis_result.get('structure') == DataStructure.LONG:
+            logging.info(f"  ファイル '{file_path}' は縦持ち構造と判断されました。")
+            item_col = analysis_result.get('item_col')
+            value_col = analysis_result.get('value_col')
+            employee_item = analysis_result.get('employee_item')
+            employee_id_item = analysis_result.get('employee_id_item') # 追加
+            skills_item = analysis_result.get('skills_item')
+            interview_date_item = analysis_result.get('interview_date_item')
+
+            if item_col and value_col in df_single.columns:
+                data_dict = pd.Series(df_single[value_col].values, index=df_single[item_col]).to_dict()
+                # 従業員名、スキル、面談日を取得
+                if employee_item in data_dict:
+                    employee_name = str(data_dict[employee_item])
+                
+                # 従業員IDを抽出
+                if employee_id_item in data_dict:
+                    employee_id = str(data_dict[employee_id_item])
+                if skills_item in data_dict:
+                    skills = data_dict[skills_item]
+                    logging.info(f"        DEBUG: Extracted skills: {skills}") # New log
+                if interview_date_item in data_dict:
+                    # 日付形式をYYYYMMDDに変換
+                    try:
+                        interview_date_str = pd.to_datetime(data_dict[interview_date_item]).strftime('%Y%m%d')
+                    except Exception as e:
+                        logging.warning(f"面談日の変換に失敗しました: {e}。処理実行日時を使用します。")
+                        interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
+                else:
+                    interview_date_str = datetime.now().strftime('%Y%m%d-%H%M%S')
+                # 面談コメントのみをテキスト化
+                comment_items = analysis_result.get('comment_items', [])
+                
+                # AIがコメント項目を十分に特定できなかった場合、デフォルトのリストを使用
+                if not comment_items or (len(comment_items) == 1 and comment_items[0] == "現在の担当業務"):
+                    logging.warning("  AIがコメント項目を十分に特定できなかったため、デフォルトのコメント項目リストを使用します。")
+                    comment_items = DEFAULT_COMMENT_ITEMS
+
+                if comment_items:
+                    # comment_itemsがリストであることを確認
+                    if not isinstance(comment_items, list):
+                        logging.warning(f"  comment_itemsがリストではないため、処理をスキップします: {comment_items}")
+                        comment_items = [] # エラーを防ぐために空のリストに設定
+                    
+                    # 抽出したコメントを結合
+                    comments_to_join = []
+                    for item in comment_items:
+                        if item in data_dict:
+                            comments_to_join.append(f"{item}: {str(data_dict[item])}") # 項目名も追加
+                    interview_data_text = "\n".join(comments_to_join)
+                    logging.info(f"  縦持ちデータからコメント項目 {comment_items} を抽出しました。")
+                else:
+                    logging.warning("  コメント項目が見つからなかったため、全データをテキスト化します。")
+                    # フォールバックとして全データをテキスト化
+                    for item, value in data_dict.items():
+                        interview_data_text += f"{item}: {value}\n"
+            else:
+                logging.error(f"  縦持ち構造の必須列が見つかりません: '{item_col}', '{value_col}'。スキップします。")
+                continue
+        else:
+            logging.error(f"AIが不明なデータ構造を返しました: {analysis_result.get('structure')}。ファイル '{file_path}' をスキップします。")
+            continue
+
+        if not interview_data_text.strip():
+            logging.warning(f"ファイル '{file_path}' からテキストデータを抽出できませんでした。スキップします。")
+            continue
+
+        logging.info(f"  ファイル '{file_path}' の面談データをAIで要約中...")
+        summary = get_summary_from_ai(interview_data_text)
+        logging.info(f"  DEBUG: Summary received from get_summary_from_ai (type: {type(summary)}): {summary[:100] if summary else 'None'}...")
+        
+        logging.info(f"  ファイル '{file_path}' のAIによるアドバイスを生成中...")
+        advice = get_advice_from_ai(summary)
+
+        # ファイル名を生成 (従業員名が不明な従業員でなければ従業員名を優先、そうでなければ従業員ID)
+        if employee_name != '不明な従業員':
+            output_filename_base = f"{employee_name}_{interview_date_str}"
+        elif employee_id: # employee_nameが不明な従業員で、employee_idがある場合
+            output_filename_base = f"{employee_id}_{interview_date_str}"
+        else: # どちらも不明な場合
+            output_filename_base = f"不明な従業員_{interview_date_str}"
+
+        safe_output_filename_base = "".join(c for c in output_filename_base if c.isalnum() or c in ('_', '-')).rstrip()
+        
+        result_df_single = pd.DataFrame([{
+            final_name_col: employee_name,
+            ColumnName.EMPLOYEE_ID: employee_id, # 追加
+            ColumnName.SKILLS: skills,
+            ColumnName.INTERVIEW_SUMMARY: summary,
+            ColumnName.AI_ADVICE: advice
+        }])
+        
+        # save_individual_reportsにファイル名を渡す
+        saved_path = save_individual_reports(result_df_single, final_name_col, output_directory, safe_output_filename_base)
+        if saved_path:
+            saved_file_paths.append(saved_path)
+            # DBにも保存
+            db_data = {
+                'employee_name': employee_name,
+                'employee_id': employee_id, # 追加
+                'interview_date': interview_date_str,
+                'summary_positive': summary, # ここは要約全体を渡す
+                'summary_negative': '', # 面談分析ではネガティブは別途抽出しないので空
+                'summary_action_items': '', # 面談分析ではアクションアイテムは別途抽出しないので空
+                'ai_advice': advice
+            }
+            database_handler.save_interview_to_db(db_data)
+        processed_dfs.append(result_df_single)
+        
+        logging.info(f"  ファイル '{file_path}' の処理が完了しました。")
+    
+    msg = "面談分析の処理が完了しました。"
+    logging.info(msg)
+    return msg, saved_file_paths
 
 def save_individual_reports(df, name_col, output_dir='.', custom_filename_base=None):
     """従業員ごとに個別のCSVファイルとして保存する"""
@@ -642,7 +643,7 @@ def save_individual_reports(df, name_col, output_dir='.', custom_filename_base=N
         logging.info(f"出力ディレクトリ '{output_dir}' を作成しました。")
     
     # 保存する列を定義
-    output_columns = [name_col, '従業員ID', '得意分野', '面談結果要約', 'AIによるアドバイス']
+    output_columns = [name_col, ColumnName.EMPLOYEE_ID, ColumnName.SKILLS, ColumnName.INTERVIEW_SUMMARY, ColumnName.AI_ADVICE]
     
     for index, row in df.iterrows():
         if custom_filename_base:
@@ -677,7 +678,7 @@ def process_daily_reports_logic(file_path):
     except Exception as e:
         logging.error(f"Excelファイルの読み込み中にエラーが発生しました: {e}")
         return f"Excelファイルの読み込み中にエラーが発生しました: {e}", []
-    output_dir = "日報分析結果"
+    output_dir = FileAndDir.DAILY_REPORT_RESULT_DIR
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         logging.info(f"出力ディレクトリ '{output_dir}' を作成しました。")
@@ -689,7 +690,7 @@ def process_daily_reports_logic(file_path):
         logging.info(f"従業員 '{employee_name}' の日報データを処理中...")
         df_daily = load_data(file_path, sheet_name=sheet_name)
         if df_daily is None or df_daily.empty: continue
-        date_col = 'タイムスタンプ'
+        date_col = ColumnName.TIMESTAMP
         if date_col not in df_daily.columns:
             logging.error(f"シート '{sheet_name}' に日付列（'{date_col}'）が見つかりませんでした。スキップします。")
             continue
@@ -698,20 +699,23 @@ def process_daily_reports_logic(file_path):
         except Exception as e:
             logging.error(f"シート '{sheet_name}' の日付列の変換に失敗しました: {e}。スキップします。")
             continue
-        daily_report_content_cols = ['今日の体調', '今日の気分', '今日の業務内容', '業務での課題や悩み', 'その他、共有事項']
+        daily_report_content_cols = [
+            ColumnName.HEALTH_CONDITION, ColumnName.MOOD, ColumnName.DAILY_業務内容,
+            ColumnName.ISSUES_AND_CONCERNS, ColumnName.OTHER_SHARED_ITEMS
+        ]
         existing_content_cols = [col for col in daily_report_content_cols if col in df_daily.columns]
         if not existing_content_cols:
             logging.error(f"シート '{sheet_name}' に日報内容の列が見つかりませんでした。スキップします。")
             continue
-        df_daily['combined_content'] = df_daily[existing_content_cols].astype(str).agg(' '.join, axis=1)
-        content_col = 'combined_content'
+        df_daily[ColumnName.COMBINED_CONTENT] = df_daily[existing_content_cols].astype(str).agg(' '.join, axis=1)
+        content_col = ColumnName.COMBINED_CONTENT
         df_daily = df_daily.sort_values(by=date_col)
-        if DAILY_REPORT_PERIOD == 'weekly':
-            df_daily['period_start'] = df_daily[date_col].apply(lambda x: x - timedelta(days=x.weekday()))
-            grouped = df_daily.groupby('period_start')
-        elif DAILY_REPORT_PERIOD == 'monthly':
-            df_daily['period_start'] = df_daily[date_col].dt.to_period('M').dt.start_time
-            grouped = df_daily.groupby('period_start')
+        if DAILY_REPORT_PERIOD == ConfigKeys.WEEKLY:
+            df_daily[ColumnName.PERIOD_START] = df_daily[date_col].apply(lambda x: x - timedelta(days=x.weekday()))
+            grouped = df_daily.groupby(ColumnName.PERIOD_START)
+        elif DAILY_REPORT_PERIOD == ConfigKeys.MONTHLY:
+            df_daily[ColumnName.PERIOD_START] = df_daily[date_col].dt.to_period('M').dt.start_time
+            grouped = df_daily.groupby(ColumnName.PERIOD_START)
         else:
             logging.error(f"無効な日報集計期間設定: {DAILY_REPORT_PERIOD}。スキップします。")
             continue
@@ -726,7 +730,14 @@ def process_daily_reports_logic(file_path):
             summary = get_daily_report_summary_from_ai(combined_daily_reports_text)
             advice = get_daily_report_advice_from_ai(summary)
             danger_signal_result = get_danger_signal_from_ai(combined_daily_reports_text)
-            result_df = pd.DataFrame([{'従業員名': employee_name, '期間': period_str, '日報内容要約': summary, 'AIによるアドバイス': advice, '危険信号': danger_signal_result['signal'], '危険信号の根拠': danger_signal_result['reason']}])
+            result_df = pd.DataFrame([{
+                ColumnName.EMPLOYEE_NAME: employee_name, 
+                ColumnName.PERIOD: period_str, 
+                ColumnName.DAILY_REPORT_SUMMARY: summary, 
+                ColumnName.AI_ADVICE: advice, 
+                ColumnName.DANGER_SIGNAL: danger_signal_result['signal'], 
+                ColumnName.DANGER_SIGNAL_REASON: danger_signal_result['reason']
+            }])
             output_filename = os.path.join(output_dir, f"{employee_name}_{period_str}_日報分析.csv")
             try:
                 result_df.to_csv(output_filename, index=False, encoding='utf-8-sig')
@@ -803,15 +814,15 @@ def generate_qa_context(df):
     context = """以下の従業員の面談要約とアドバイスを参考に、質問に答えてください。
 
 """
-    name_col = '従業員名'
+    name_col = ColumnName.EMPLOYEE_NAME
     if name_col not in df.columns:
         logging.error(f"コンテキスト生成に必要な'{name_col}'列が見つかりません。")
         return ""
 
     # 列の存在を確認
-    summary_col_interview = '面談結果要約'
-    summary_col_daily = '日報内容要約'
-    advice_col = 'AIによるアドバイス'
+    summary_col_interview = ColumnName.INTERVIEW_SUMMARY
+    summary_col_daily = ColumnName.DAILY_REPORT_SUMMARY
+    advice_col = ColumnName.AI_ADVICE
     
     for index, row in df.iterrows():
         employee_name = row.get(name_col, '不明')
@@ -827,8 +838,8 @@ def generate_qa_context(df):
             summary = str(row.get(summary_col_daily, 'N/A')).replace("nan", "")
             
         advice = str(row.get(advice_col, 'N/A')).replace("nan", "")
-        danger_signal = str(row.get('危険信号', 'N/A')).replace("nan", "")
-        danger_reason = str(row.get('危険信号の根拠', 'N/A')).replace("nan", "")
+        danger_signal = str(row.get(ColumnName.DANGER_SIGNAL, 'N/A')).replace("nan", "")
+        danger_reason = str(row.get(ColumnName.DANGER_SIGNAL_REASON, 'N/A')).replace("nan", "")
         context += f"--- 従業員: {employee_name} ({data_type}) ---\n"
         context += f"要約: {summary}\n"
         context += f"AIによるアドバイス: {advice}\n"
@@ -844,13 +855,13 @@ def ask_question_to_ai(question, chat_session, initial_context=None):
         return "質問が入力されていません。"
     logging.info(f"AIへの質問: {question}")
     try:
-        if AI_BACKEND == 'gemini':
+        if AI_BACKEND == ConfigKeys.GEMINI:
             # initial_contextはprepare_qa_dataで既に設定されているため、ここでは不要
             response = chat_session.send_message(question)
             ai_response = response.text.strip()
             logging.info(f"AIからの応答: {ai_response}")
             return f"AIの回答: {ai_response}"
-        elif AI_BACKEND == 'ollama':
+        elif AI_BACKEND == ConfigKeys.OLLAMA:
             # Ollamaの場合は、chat_sessionがメッセージ履歴を保持していると仮定
             # ここでは、既存のメッセージ履歴に新しい質問を追加して送信する
             messages = chat_session # chat_sessionがメッセージリストとして渡されると仮定
@@ -885,14 +896,14 @@ def prepare_qa_data():
     initial_context = generate_qa_context(combined_qa_df)
 
     chat_session = None
-    if AI_BACKEND == 'gemini':
+    if AI_BACKEND == ConfigKeys.GEMINI:
         model = genai.GenerativeModel('gemini-1.5-flash')
         # initial_contextをシステムプロンプトとしてhistoryの最初の要素に設定
         chat_session = model.start_chat(history=[
             {'role':'user', 'parts':[initial_context]},
             {'role':'model', 'parts':['はい、何でもお聞きください。']} # AIの最初の応答例
         ])
-    elif AI_BACKEND == 'ollama':
+    elif AI_BACKEND == ConfigKeys.OLLAMA:
         # Ollamaの場合は、メッセージ履歴をリストとして初期化
         chat_session = [{"role": "system", "content": initial_context}] # システムプロンプトとして初期コンテキストを設定
 
@@ -911,10 +922,10 @@ def run_backend_process(mode, input_path=None, question=None, context=None, chat
 
     # --- API接続テスト ---
     # AIモデルを使用するモードでのみAPI接続テストを実行
-    if mode in ["interview", "qa", "daily_report"]:
+    if mode in [AnalysisMode.INTERVIEW, AnalysisMode.QA, AnalysisMode.DAILY_REPORT]:
         logging.info("--- API接続の独立テストを開始します ---")
         try:
-            if AI_BACKEND == 'gemini':
+            if AI_BACKEND == ConfigKeys.GEMINI:
                 logging.info(f"    [Test] Geminiモデルを初期化しています... ({GEMINI_MODEL})")
                 test_model = genai.GenerativeModel(GEMINI_MODEL) # テストには本番と同じモデルを使用
                 logging.info("    [Test] Geminiモデルの初期化が完了しました。")
@@ -931,17 +942,17 @@ def run_backend_process(mode, input_path=None, question=None, context=None, chat
             return f"API接続テストに失敗しました。設定を確認してください。エラー: {e}", [], None
         # --- テスト終了 ---
 
-    if mode == "interview":
+    if mode == AnalysisMode.INTERVIEW:
         return process_interviews_logic(input_path)
-    elif mode == "qa":
+    elif mode == AnalysisMode.QA:
         logging.info("モード: AI対話 - 回答生成")
         # chat_sessionをask_question_to_aiに渡す
         return ask_question_to_ai(question, chat_session, initial_context=context), [], []
-    elif mode == "daily_report":
+    elif mode == AnalysisMode.DAILY_REPORT:
         return process_daily_reports_logic(input_path)
-    elif mode == "get_delete_list":
+    elif mode == AnalysisMode.GET_DELETE_LIST:
         return get_deletable_data_for_ui(), [], []
-    elif mode == "execute_delete":
+    elif mode == AnalysisMode.EXECUTE_DELETE:
         return handle_delete_request(input_path), [], []
     else:
         msg = f"無効なモードが指定されました: {mode}"
