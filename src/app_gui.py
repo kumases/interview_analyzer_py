@@ -16,6 +16,7 @@ class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
         logging.debug("App.__init__ started.")
+        self.TkdndVersion = tkdnd._require(self) # tkinterdnd2を有効化
         
 
         self.title("Interview Analyzer")
@@ -426,11 +427,7 @@ class App(customtkinter.CTk):
             self.delete_button.configure(state="disabled")
 
 if __name__ == "__main__":
-    # tkinterdnd2の初期化
-    root = customtkinter.CTk()
-    root.withdraw() # メインウィンドウを非表示にする
-    root.TkdndVersion = tkdnd._require(root) # tkinterdnd2を有効化
-    root.destroy()
+    
 
     app = App()
     app.mainloop()
