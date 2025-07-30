@@ -33,10 +33,14 @@ interview_analyzer_py/
 │   ├── detect_encoding.py # ファイルエンコーディング検出
 │   └── inspect_db.py     # データベース内容確認
 │   └── README.md         # ツール説明
-├── website/              # HTML形式の説明資料
+├── website/              # Webサイト関連ファイル (一部Git管理外)
 ├── .gitignore            # Git管理対象外ファイル・ディレクトリ指定
+├── config.ini            # アプリケーション設定ファイル (Git管理外)
 ├── interview_analyzer.spec # PyInstallerビルド設定ファイル
 ├── requirements.txt      # Python依存ライブラリリスト
+├── analyzer_data.db      # SQLiteデータベースファイル (Git管理外)
+├── 日報分析結果/         # 日報分析結果出力先 (Git管理外)
+└── 面談要約結果/         # 面談要約結果出力先 (Git管理外)
 ```
 
 ## 3. 開発環境のセットアップ
