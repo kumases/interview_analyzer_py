@@ -9,7 +9,6 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
-dist/
 develop-eggs/
 *.egg-info/
 .installed.cfg
@@ -17,6 +16,7 @@ develop-eggs/
 
 # PyInstaller
 #  Usually these files are in another directory, where the executable is created
+!dist/*.exe # .exeファイルのみGitに含める
 
 # Installer logs
 pip-log.txt
@@ -117,3 +117,8 @@ logs/
 *.log
 *.db
 analyzer_data.db
+
+# Custom ignores
+config.ini
+日報分析結果/
+面談要約結果/

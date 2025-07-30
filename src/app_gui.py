@@ -10,12 +10,13 @@ import os # これを追加！
 import logging # これを追加！
 from tkinter import messagebox # 追加
 from ui_state_manager import UiStateManager # UiStateManagerをインポート
+from constants import AnalysisMode, UIDefaults # 定数をインポート
 
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
-        print("DEBUG: App.__init__ started.")
-        self.TkdndVersion = tkdnd._require(self) # tkinterdnd2を有効化
+        logging.debug("App.__init__ started.")
+        
 
         self.title("Interview Analyzer")
         self.geometry("800x600")
@@ -31,12 +32,12 @@ class App(customtkinter.CTk):
         self.mode_frame.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
         self.mode_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
-        self.mode_variable = customtkinter.StringVar(value="interview")
-        self.interview_radio = customtkinter.CTkRadioButton(self.mode_frame, text="面談分析", variable=self.mode_variable, value="interview", command=self.on_mode_change)
+        self.mode_variable = customtkinter.StringVar(value=AnalysisMode.INTERVIEW)
+        self.interview_radio = customtkinter.CTkRadioButton(self.mode_frame, text=UIDefaults.INTERVIEW_MODE_TEXT, variable=self.mode_variable, value=AnalysisMode.INTERVIEW, command=self.on_mode_change)
         self.interview_radio.grid(row=0, column=0, padx=10, pady=10)
-        self.daily_report_radio = customtkinter.CTkRadioButton(self.mode_frame, text="日報分析", variable=self.mode_variable, value="daily_report", command=self.on_mode_change)
+        self.daily_report_radio = customtkinter.CTkRadioButton(self.mode_frame, text=UIDefaults.DAILY_REPORT_MODE_TEXT, variable=self.mode_variable, value=AnalysisMode.DAILY_REPORT, command=self.on_mode_change)
         self.daily_report_radio.grid(row=0, column=1, padx=10, pady=10)
-        self.qa_radio = customtkinter.CTkRadioButton(self.mode_frame, text="AI対話", variable=self.mode_variable, value="qa", command=self.on_mode_change)
+        self.qa_radio = customtkinter.CTkRadioButton(self.mode_frame, text=UIDefaults.QA_MODE_TEXT, variable=self.mode_variable, value=AnalysisMode.QA, command=self.on_mode_change)
         self.qa_radio.grid(row=0, column=2, padx=10, pady=10)
 
         # 2. 説明ラベル
@@ -102,9 +103,9 @@ class App(customtkinter.CTk):
         self.delete_frame.grid(row=6, column=0, padx=20, pady=10, sticky="ew")
         self.delete_frame.grid_columnconfigure(0, weight=1) # ドロップダウンが広がるように
 
-        self.delete_combobox = customtkinter.CTkComboBox(self.delete_frame, values=["削除対象を選択してください..."], command=self.on_delete_combobox_change)
+        self.delete_combobox = customtkinter.CTkComboBox(self.delete_frame, values=[UIDefaults.DELETE_PROMPT], command=self.on_delete_combobox_change)
         self.delete_combobox.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        self.delete_combobox.set("削除対象を選択してください...") # 初期表示
+        self.delete_combobox.set(UIDefaults.DELETE_PROMPT) # 初期表示
 
         # 削除リスト更新ボタン (名称変更、位置変更)
         self.update_delete_list_button = customtkinter.CTkButton(self.delete_frame, text="要約結果リスト更新", command=self.update_delete_combobox)
@@ -134,16 +135,16 @@ class App(customtkinter.CTk):
         self.on_mode_change() 
 
         # DB初期化
-        print("DEBUG: About to import database_handler.")
+        logging.debug("About to import database_handler.")
         import database_handler
-        print("DEBUG: Calling database_handler.initialize_database()...")
+        logging.debug("Calling database_handler.initialize_database()...")
         database_handler.initialize_database()
-        print("DEBUG: database_handler.initialize_database() finished.")
+        logging.debug("database_handler.initialize_database() finished.")
 
     # --- UIの表示/非表示を切り替える関数 ---
     def on_mode_change(self):
         selected_mode = self.mode_variable.get()
-        if selected_mode == "qa":
+        if selected_mode == AnalysisMode.QA:
             # AI対話モードの初期UI状態を設定
             self.ui_manager.set_mode_qa_initial_state()
         else:
@@ -159,7 +160,7 @@ class App(customtkinter.CTk):
 
     def select_file(self):
         selected_mode = self.mode_variable.get()
-        if selected_mode == "interview":
+        if selected_mode == AnalysisMode.INTERVIEW:
             filepath = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         else:
             filepath = filedialog.askopenfilename()
@@ -174,7 +175,7 @@ class App(customtkinter.CTk):
             self.path_entry.insert(0, folderpath)
 
     def start_analysis(self):
-        print("DEBUG: start_analysis called.")
+        logging.debug("start_analysis called.")
         mode = self.mode_variable.get()
         path = os.path.normpath(self.path_entry.get())
 
@@ -200,7 +201,7 @@ class App(customtkinter.CTk):
         thread.start()
 
     def start_qa_session_flow(self):
-        print("DEBUG: start_qa_session_flow called.")
+        logging.debug("start_qa_session_flow called.")
         # UIの状態をUiStateManager経由で設定 (処理中状態)
         self.ui_manager.set_processing_state()
         self.start_spinner()
@@ -213,7 +214,7 @@ class App(customtkinter.CTk):
         thread.start()
 
     def _prepare_qa_session(self):
-        print("DEBUG: _prepare_qa_session called.")
+        logging.debug("_prepare_qa_session called.")
         self.log("AI対話モードの準備を開始します...")
         
         # backend_logicからデータを読み込み、件数とチャットセッションを取得
@@ -247,17 +248,17 @@ class App(customtkinter.CTk):
         thread.start()
 
     def _update_delete_combobox_backend(self):
-        self.log("DEBUG: _update_delete_combobox_backend called.")
-        deletable_items, _, _ = backend_logic.run_backend_process(mode="get_delete_list")
-        self.log(f"DEBUG: deletable_items from backend: {deletable_items}")
+        logging.debug("_update_delete_combobox_backend called.")
+        deletable_items, _, _ = backend_logic.run_backend_process(mode=AnalysisMode.GET_DELETE_LIST)
+        logging.debug(f"deletable_items from backend: {deletable_items}")
         if deletable_items and isinstance(deletable_items, list):
             self.after(0, lambda: self.delete_combobox.configure(values=deletable_items))
-            self.after(0, lambda: self.delete_combobox.set("削除対象を選択してください..."))
+            self.after(0, lambda: self.delete_combobox.set(UIDefaults.DELETE_PROMPT))
             self.log(f"{len(deletable_items)}件の削除対象データを取得しました。")
         else:
             self.log("削除対象データが見つかりませんでした。")
-            self.after(0, lambda: self.delete_combobox.configure(values=["削除対象なし"]))
-            self.after(0, lambda: self.delete_combobox.set("削除対象なし"))
+            self.after(0, lambda: self.delete_combobox.configure(values=[UIDefaults.NO_ITEMS_TO_DELETE]))
+            self.after(0, lambda: self.delete_combobox.set(UIDefaults.NO_ITEMS_TO_DELETE))
         
         self.stop_spinner()
         # UIの状態をUiStateManager経由で設定 (削除関連UI活性状態)
@@ -291,7 +292,7 @@ class App(customtkinter.CTk):
             message, saved_paths = backend_logic.run_backend_process(mode, path, question, context)
             self.log(message)
             if saved_paths:
-                if mode == "interview":
+                if mode == AnalysisMode.INTERVIEW:
                     # 面談分析の場合、結果ファイル表示ボタンを表示
                     self.result_file_path = saved_paths[0] # 最初のファイルパスを保存
                     self.result_file_button.configure(text=f"結果ファイルを開く: {os.path.basename(self.result_file_path)}")
@@ -300,7 +301,7 @@ class App(customtkinter.CTk):
                     self.result_folder_path = os.path.dirname(self.result_file_path)
                     self.result_folder_button.configure(text=f"結果フォルダを開く: {os.path.basename(self.result_folder_path)}")
                     self.result_folder_button.grid()
-                elif mode == "daily_report":
+                elif mode == AnalysisMode.DAILY_REPORT:
                     # 日報分析の場合、結果フォルダ表示ボタンを表示
                     if saved_paths: # saved_pathsが空でないことを確認
                         self.result_folder_path = os.path.dirname(saved_paths[0]) # 最初のファイルパスのディレクトリを保存
@@ -389,7 +390,7 @@ class App(customtkinter.CTk):
 
     def execute_delete(self):
         selected_item = self.delete_combobox.get()
-        if selected_item == "削除対象を選択してください..." or selected_item == "削除対象なし":
+        if selected_item == UIDefaults.DELETE_PROMPT or selected_item == UIDefaults.NO_ITEMS_TO_DELETE:
             self.log("削除対象を選択してください。")
             return
         
@@ -406,7 +407,7 @@ class App(customtkinter.CTk):
 
     def _execute_delete_backend(self, selected_item):
         try:
-            message, _, _ = backend_logic.run_backend_process(mode="execute_delete", input_path=selected_item)
+            message, _, _ = backend_logic.run_backend_process(mode=AnalysisMode.EXECUTE_DELETE, input_path=selected_item)
             self.log(message)
             self.update_delete_combobox() # 削除後にリストを更新
         except Exception as e:
@@ -419,11 +420,17 @@ class App(customtkinter.CTk):
             self.ui_manager.set_delete_ui_active()
 
     def on_delete_combobox_change(self, choice):
-        if choice not in ["削除対象を選択してください...", "削除対象なし"]:
+        if choice not in [UIDefaults.DELETE_PROMPT, UIDefaults.NO_ITEMS_TO_DELETE]:
             self.delete_button.configure(state="normal")
         else:
             self.delete_button.configure(state="disabled")
 
 if __name__ == "__main__":
+    # tkinterdnd2の初期化
+    root = customtkinter.CTk()
+    root.withdraw() # メインウィンドウを非表示にする
+    root.TkdndVersion = tkdnd._require(root) # tkinterdnd2を有効化
+    root.destroy()
+
     app = App()
     app.mainloop()
