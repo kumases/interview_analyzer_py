@@ -833,13 +833,35 @@ def generate_qa_context(df):
         logging.info(f'  コンテキスト生成中: 従業員名="{employee_name}", データ種別="{data_type}"') # New log
         
         if data_type == '面談要約':
-            summary = str(row.get(summary_col_interview, 'N/A')).replace("nan", "")
+            summary = row.get(summary_col_interview, None)
+            if pd.isna(summary):
+                summary = 'N/A'
+            else:
+                summary = str(summary)
         else:
-            summary = str(row.get(summary_col_daily, 'N/A')).replace("nan", "")
+            summary = row.get(summary_col_daily, None)
+            if pd.isna(summary):
+                summary = 'N/A'
+            else:
+                summary = str(summary)
             
-        advice = str(row.get(advice_col, 'N/A')).replace("nan", "")
-        danger_signal = str(row.get(ColumnName.DANGER_SIGNAL, 'N/A')).replace("nan", "")
-        danger_reason = str(row.get(ColumnName.DANGER_SIGNAL_REASON, 'N/A')).replace("nan", "")
+        advice = row.get(advice_col, None)
+        if pd.isna(advice):
+            advice = 'N/A'
+        else:
+            advice = str(advice)
+
+        danger_signal = row.get(ColumnName.DANGER_SIGNAL, None)
+        if pd.isna(danger_signal):
+            danger_signal = 'N/A'
+        else:
+            danger_signal = str(danger_signal)
+
+        danger_reason = row.get(ColumnName.DANGER_SIGNAL_REASON, None)
+        if pd.isna(danger_reason):
+            danger_reason = 'N/A'
+        else:
+            danger_reason = str(danger_reason)
         context += f"--- 従業員: {employee_name} ({data_type}) ---\n"
         context += f"要約: {summary}\n"
         context += f"AIによるアドバイス: {advice}\n"
